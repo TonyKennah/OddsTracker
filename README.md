@@ -26,3 +26,8 @@ After building the project, you can run the application with the following comma
 ```sh
 java --add-opens java.base/java.lang=ALL-UNNAMED -jar target/odds-tracker-1.0-SNAPSHOT.jar
 ```
+
+<img width="1476" height="854" alt="image" src="https://github.com/user-attachments/assets/8a24555f-3e74-4db3-9b59-67415804c00c" />
+
+<img width="1347" height="798" alt="image" src="https://github.com/user-attachments/assets/a12f8789-0ec4-40c3-bf02-9089c3d00a56" />
+
