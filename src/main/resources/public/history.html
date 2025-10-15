@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+    <meta charset="UTF-8">
+    <title>Odds History</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <style>
+        body { font-family: sans-serif; background-color: #f4f4f9; margin: 0; padding: 20px; }
+        h1 { text-align: center; color: #333; }
+        a { color: #007bff; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        #chart-container { width: 90%; max-width: 1200px; margin: 20px auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+
+<h1 id="runner-name">Odds Movement History</h1>
+
+<div id="chart-container">
+    <canvas id="historyChart"></canvas>
+</div>
+
+<div style="text-align: center; margin-top: 20px; color: #555; font-style: italic;">
+    You can close this tab to return to the main tracker.
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', async () => {
+        const params = new URLSearchParams(window.location.search);
+        const eventIdentifier = params.get('eventIdentifier');
+
+        if (!eventIdentifier) {
+            document.getElementById('runner-name').textContent = 'Error: No event specified.';
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/history?eventIdentifier=${encodeURIComponent(eventIdentifier)}`);
+            const raceHistoryData = await response.json();
+
+            if (!raceHistoryData || !raceHistoryData.runnersHistory || raceHistoryData.runnersHistory.length === 0) {
+                 document.getElementById('runner-name').textContent = 'No history data available for this event.';
+                 return;
+            }
+
+            const eventName = raceHistoryData.eventIdentifier.substring(17);
+            document.getElementById('runner-name').textContent = `Odds History for: ${eventName}`;
+
+            // Function to generate a color from a string (runner name)
+            const stringToColor = (str) => {
+                let hash = 0;
+                for (let i = 0; i < str.length; i++) {
+                    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+                }
+                let color = '#';
+                for (let i = 0; i < 3; i++) {
+                    const value = (hash >> (i * 8)) & 0xFF;
+                    color += ('00' + value.toString(16)).substr(-2);
+                }
+                return color;
+            };
+
+            const datasets = raceHistoryData.runnersHistory.map(runnerHistory => {
+                return {
+                    label: runnerHistory.runnerName,
+                    data: runnerHistory.history.map(point => ({
+                        x: new Date(point.timestamp),
+                        y: point.odds
+                    })),
+                    borderColor: stringToColor(runnerHistory.runnerName),
+                    tension: 0.1,
+                    fill: false
+                };
+            });
+
+            const ctx = document.getElementById('historyChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    datasets: datasets
+                },
+                options: {
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: {
+                                padding: 20,
+                                font: {
+                                    size: 14
+                                }
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: 'Click on a runner in the legend below to hide or show its line.',
+                            padding: { top: 10, bottom: 20 },
+                            font: { weight: 'normal', style: 'italic' }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                tooltipFormat: 'dd-MM-yy HH:mm'
+                            },
+                            title: {
+                                display: true,
+                                text: 'Time'
+                            }
+                        },
+                        y: {
+                            beginAtZero: false,
+                            title: {
+                                display: true,
+                                text: 'Odds'
+                            }
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Error fetching history:', error);
+            document.getElementById('runner-name').textContent = 'Failed to load history data.';
+        }
+    });
+</script>
+
+</body>
+</html>

@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Odds Tracker</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+    <style>
+        body { font-family: sans-serif; background-color: #f4f4f9; margin: 0; padding: 20px; }
+        h1 { text-align: center; color: #333; }
+        #controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        #controls button { font-size: 20px; padding: 15px 30px; margin: 0 15px; cursor: pointer; border-radius: 8px; border: 1px solid #ccc; }
+        #event-time-display { font-size: 24px; font-weight: bold; color: #555; }
+        #chart-container { width: 90%; max-width: 1200px; margin: 20px auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+
+<h1>Live Odds Tracker</h1>
+
+<div id="controls">
+    <button id="prev-btn">&laquo; Previous</button>
+    <span id="event-time-display">--:--</span>
+    <button id="next-btn">Next &raquo;</button>
+</div>
+
+<div id="chart-container">
+    <canvas id="oddsChart"></canvas>
+</div>
+
+<script>
+    Chart.register(ChartDataLabels); // Register the plugin
+    const ctx = document.getElementById('oddsChart').getContext('2d');
+    let oddsChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Odds Movement',
+                data: [],
+                backgroundColor: 'rgba(54, 162, 235, 0.6)',
+                borderColor: 'rgba(54, 162, 235, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            indexAxis: 'y', // Makes the bar chart horizontal
+            scales: {
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Odds Movement (Negative = Shortening, Positive = Lengthening)'
+                    },
+                },
+                y: {
+                    ticks: {
+                        font: {
+                            weight: 'bold',
+                            size: 14
+                        }
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false
+                },
+                datalabels: {
+                    clamp: true, // This prevents the label from going outside the chart area
+                    align: function(context) { // Dynamically align the label
+                        const chart = context.chart;
+                        const scale = chart.scales.x;
+                        const value = context.dataset.data[context.dataIndex];
+                        const threshold = (scale.max - scale.min) * 0.9 + scale.min;
+
+                        // If the bar is long (e.g., > 90% of the axis), draw the label inside.
+                        // This check works for both positive and negative bars.
+                        return Math.abs(value) > Math.abs(threshold) ? 'start' : 'end';
+                    },
+                    anchor: 'end',
+                    color: function(context) {
+                        // Use the overall movement (value of the bar) to determine the color
+                        const value = context.dataset.data[context.dataIndex];
+                        if (value < 0) {
+                            return 'red'; // Down arrows are red
+                        }
+                        if (value > 0) {
+                            return 'blue'; // Up arrows are blue
+                        }
+                        return 'black'; // Stable arrows are black
+                    },
+                    font: {
+                        weight: 'bold',
+                        size: 16
+                    },
+                    formatter: function(value, context) {
+                        // Use the overall movement (value of the bar) to determine the arrow
+                        const item = context.chart.data.datasets[0].items[context.dataIndex];
+                        if (value === 0) return '⇔';
+                        const isRecent = item.lastMovementType === 'RECENT';
+                        return value < 0 ? (isRecent ? '▼' : '▽') : (isRecent ? '▲' : '△');
+                    },
+                    offset: 8
+                }
+            }
+        }
+    });
+
+    let groupedOdds = {};
+    let eventTimes = [];
+    let currentIndex = -1;
+
+    document.getElementById('prev-btn').addEventListener('click', () => {
+        if (currentIndex > 0) {
+            currentIndex--;
+            updateChartForCurrentIndex();
+        }
+    });
+
+    document.getElementById('next-btn').addEventListener('click', () => {
+        if (currentIndex < eventTimes.length - 1) {
+            currentIndex++;
+            updateChartForCurrentIndex();
+        }
+    });
+
+    function updateChartForCurrentIndex() {
+        if (currentIndex === -1 || eventTimes.length === 0) {
+            // Clear the chart and disable buttons if there's no data
+            document.getElementById('event-time-display').textContent = 'No Data';
+            oddsChart.data.labels = [];
+            oddsChart.data.datasets[0].data = [];
+            oddsChart.update();
+            document.getElementById('prev-btn').disabled = true;
+            document.getElementById('next-btn').disabled = true;
+            return;
+        }
+
+        const time = eventTimes[currentIndex];
+        const racePayload = groupedOdds[time];
+        const runnersWithMovement = racePayload.runners.map(item => {
+            // Recalculate movement as the simple difference between current and initial odds
+            const newMovement = item.runner.odds - item.runner.initialOdds;
+            return { ...item, movement: newMovement };
+        }).sort((a, b) => {
+            // Sort by status first (runners before non-runners), then by movement
+            if (a.status === b.status) {
+                return a.movement - b.movement;
+            }
+            return a.status === 'RUNNER' ? -1 : 1;
+        });
+
+
+        if (runnersWithMovement.length > 0) {
+            // Extract event details from the first runner in the group
+            const fullEventString = runnersWithMovement[0].runner.event;
+            const eventDetails = fullEventString.substring(17); // Skips the "dd-MM-yyyy HH:mm " part
+            const overroundValue = racePayload.overround;
+            const overroundLabel = overroundValue >= 0 ? 'Over' : 'Under';
+            const displayValue = Math.abs(overroundValue).toFixed(1);
+            const overroundText = `(${overroundLabel}: ${displayValue}%)`;
+            const historyLink = ` <a href="/history.html?eventIdentifier=${encodeURIComponent(fullEventString)}" title="View race history chart" target="_blank" rel="noopener noreferrer">📈</a>`;
+            document.getElementById('event-time-display').innerHTML = `Event: ${time} ${eventDetails} ${overroundText} ${historyLink}`;
+        } else {
+            document.getElementById('event-time-display').textContent = `Event Time: ${time}`;
+        }
+        oddsChart.data.labels = runnersWithMovement.map(item => {
+            if (item.status === 'NON_RUNNER') {
+                return `${item.runner.name} (Non-Runner)`;
+            }
+            const displayOdds = item.runner.odds.toFixed(2);
+            const initialOdds = item.runner.initialOdds.toFixed(2);
+            return `${item.runner.name} (${displayOdds} from ${initialOdds})`;
+        });
+        
+        const movements = runnersWithMovement.map(item => item.movement);
+        oddsChart.data.datasets[0].data = movements;
+        // Store the full items on the dataset for the plugin to access
+        oddsChart.data.datasets[0].items = runnersWithMovement;
+
+        // Set bar colors: blue for shortening (backing), pink for lengthening (laying), grey for non-runners
+        oddsChart.data.datasets[0].backgroundColor = runnersWithMovement.map(item => item.status === 'NON_RUNNER' ? '#b4b4b4' : (item.movement < 0 ? '#a6d8ff' : '#fac9d1'));
+        oddsChart.data.datasets[0].borderColor = runnersWithMovement.map(item => item.status === 'NON_RUNNER' ? '#9c9c9c' : (item.movement < 0 ? '#91cfff' : '#f8b8c2'));
+
+        oddsChart.update();
+
+        document.getElementById('prev-btn').disabled = currentIndex === 0;
+        document.getElementById('next-btn').disabled = currentIndex === eventTimes.length - 1;
+    }
+
+    async function fetchAndUpdateChart() {
+        try {
+            const response = await fetch('/api/odds');
+            groupedOdds = await response.json();
+            eventTimes = Object.keys(groupedOdds);
+
+            if (eventTimes.length > 0 && currentIndex === -1) {
+                currentIndex = 0;
+            }
+
+            updateChartForCurrentIndex();
+
+        } catch (error) {
+            console.error('Error fetching odds:', error);
+            currentIndex = -1;
+            updateChartForCurrentIndex();
+        }
+    }
+
+    // Fetch data immediately on load, and then every 30 seconds
+    fetchAndUpdateChart();
+    setInterval(fetchAndUpdateChart, 120000); // Align with backend 2-minute polling
+
+</script>
+
+</body>
+</html>
