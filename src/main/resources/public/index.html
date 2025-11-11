@@ -79,13 +79,15 @@
                     },
                     anchor: 'end',
                     color: function(context) {
-                        // Use the overall movement (value of the bar) to determine the color
-                        const value = context.dataset.data[context.dataIndex];
-                        if (value < 0) {
-                            return 'red'; // Down arrows are red
+                        // Use the last movement to determine the color of the arrow/annotation
+                        const item = context.chart.data.datasets[0].items[context.dataIndex];
+                        const lastMove = item.lastMovement;
+
+                        if (lastMove < 0) {
+                            return 'blue'; // Down arrows are blue
                         }
-                        if (value > 0) {
-                            return 'blue'; // Up arrows are blue
+                        if (lastMove > 0) {
+                            return 'red'; // Up arrows are red
                         }
                         return 'black'; // Stable arrows are black
                     },
@@ -94,11 +96,19 @@
                         size: 16
                     },
                     formatter: function(value, context) {
-                        // Use the overall movement (value of the bar) to determine the arrow
                         const item = context.chart.data.datasets[0].items[context.dataIndex];
-                        if (value === 0) return '⇔';
+                        const lastMove = item.lastMovement;
+
+                        if (lastMove === 0) {
+                            return '⇔'; // No movement
+                        }
+
+                        const movementValue = lastMove.toFixed(1);
+                        const sign = lastMove > 0 ? '+' : '';
+                        const annotation = ` (${sign}${movementValue})`;
+
                         const isRecent = item.lastMovementType === 'RECENT';
-                        return value < 0 ? (isRecent ? '▼' : '▽') : (isRecent ? '▲' : '△');
+                        return (lastMove > 0 ? (isRecent ? '▼' : '▽') : (isRecent ? '▲' : '△')) + annotation;
                     },
                     offset: 8
                 }
@@ -178,9 +188,9 @@
         // Store the full items on the dataset for the plugin to access
         oddsChart.data.datasets[0].items = runnersWithMovement;
 
-        // Set bar colors: blue for shortening (backing), pink for lengthening (laying), grey for non-runners
-        oddsChart.data.datasets[0].backgroundColor = runnersWithMovement.map(item => item.status === 'NON_RUNNER' ? '#b4b4b4' : (item.movement < 0 ? '#a6d8ff' : '#fac9d1'));
-        oddsChart.data.datasets[0].borderColor = runnersWithMovement.map(item => item.status === 'NON_RUNNER' ? '#9c9c9c' : (item.movement < 0 ? '#91cfff' : '#f8b8c2'));
+        // Set bar colors: red for lengthening (+), blue for shortening (-), grey for non-runners
+        oddsChart.data.datasets[0].backgroundColor = runnersWithMovement.map(item => item.status === 'NON_RUNNER' ? '#b4b4b4' : (item.movement > 0 ? '#fac9d1' : '#a6d8ff'));
+        oddsChart.data.datasets[0].borderColor = runnersWithMovement.map(item => item.status === 'NON_RUNNER' ? '#9c9c9c' : (item.movement > 0 ? '#f8b8c2' : '#91cfff'));
 
         oddsChart.update();
 
